@@ -37,7 +37,8 @@ TMPID = 12
 CO2ID = 35
 
 NOW = int(time.time())
-PDAY = NOW - (86400 * args.length)
+LENGTH_LIMIT = 86400 * args.length
+PDAY = NOW - LENGTH_LIMIT
 
 HEADER = {'user-agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36'}
 
@@ -78,21 +79,13 @@ def clear_devices(idx, table):
         sys.exit("[-] Data removal failed, exiting" + "\n")
 
 
-def get_lastupdate(idx, table):
-    """Get date from last update for respective sensor."""
-    comment = ""
-    for dates in c.execute('select max(Date) from ' + str(table) + ' where DeviceRowID=' + str(idx)):
-        if dates[0] is None:
-            lastdate = PDAY
-            comment = " (" + str(args.length) + " day limit)"
-        else:
-            dt_obj = datetime.strptime(str(dates[0]), "%Y-%m-%d %H:%M:%S")
-            lastdate = int(time.mktime(dt_obj.timetuple())) + 1
-            if lastdate < PDAY:
-                lastdate = PDAY
-                comment = " (" + str(args.length) + " day limit)"
-    print("[-] Downloading all measurements recorded after " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(lastdate)) + comment)
-    return lastdate
+def clear_data_for_input_timeframe(idx, table):
+    """Remove any existing data for the chosen timeframe"""
+    print("[-] Clearing existing " + str(table).upper()) + " data for the chosen timeframe limit"
+    try:
+        c.execute("DELETE FROM " + str(table) + " WHERE DeviceRowID = " + str(idx) + " AND Date >= datetime('now', '-" + str(LENGTH_LIMIT) + " second');")
+    except Exception:
+        sys.exit("[-] Data removal failed, exiting" + "\n")
 
 
 def authenticate_withings(username, password):
@@ -125,6 +118,7 @@ def authenticate_withings(username, password):
 
 def download_data(deviceid, sessionkey, mtype, lastdate):
     """Download json data from scale based on measurement type."""
+    print("[-] Downloading all measurements recorded after " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(lastdate)) + " (" + str(args.length) + " day limit)")
     payload = '/v2/measure?action=getmeashf&deviceid=' + str(deviceid) + '&meastype=' + str(mtype) + '&startdate=' + str(lastdate) + '&enddate=' + str(NOW) + \
         '&appliver=3000201&apppfm=android&appname=wiscaleNG&callctx=foreground&sessionid=' + str(sessionkey)
     try:
@@ -215,8 +209,8 @@ def main():
     if args.co2:
         if args.remove:
             clear_devices(args.co2, "Meter")
-        lastentrydate = get_lastupdate(args.co2, "Meter")
-        co2data = download_data(deviceid, sessionkey, CO2ID, lastentrydate)
+        clear_data_for_input_timeframe(args.co2, "Meter")
+        co2data = download_data(deviceid, sessionkey, CO2ID, PDAY)
         co2rows = update_meter("CO2 Hourly", args.co2, "Value", "Meter", co2data, "nValue")
         totalrows = totalrows + co2rows
         if args.full:
@@ -228,8 +222,8 @@ def main():
     if args.temperature:
         if args.remove:
             clear_devices(args.temperature, "Temperature")
-        lastentrydate = get_lastupdate(args.temperature, "Temperature")
-        tmpdata = download_data(deviceid, sessionkey, TMPID, lastentrydate)
+        clear_data_for_input_timeframe(args.temperature, "Temperature")
+        tmpdata = download_data(deviceid, sessionkey, TMPID, PDAY)
         tmprows = update_meter("TEMPERATURE Hourly", args.temperature, "Temperature", "Temperature", tmpdata, "sValue")
         totalrows = totalrows + tmprows
         if args.full:
